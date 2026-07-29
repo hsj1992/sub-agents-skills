@@ -32,6 +32,14 @@ def _inv(cli, **kw):
     return AgentInvocation(**defaults)
 
 
+def _credential_env(cli):
+    if cli == "glm":
+        return {"GLM_API_KEY": "test-key"}
+    if cli == "kimi":
+        return {"KIMI_API_KEY": "test-key"}
+    return {}
+
+
 class TestBuildCommand:
     def test_supported_cli_configuration_is_in_sync(self):
         assert set(_BUILDERS) == set(SUPPORTED_CLIS)
@@ -93,6 +101,11 @@ class TestBuildCommand:
         assert cmd == "claude"
         assert args == ["--output-format", "stream-json", "--verbose", "-p", "test prompt"]
 
+    def test_kimi_reuses_claude_binary_and_argv(self):
+        cmd, args = build_command("kimi", "test prompt")
+        assert cmd == "claude"
+        assert args == ["--output-format", "stream-json", "--verbose", "-p", "test prompt"]
+
     def test_opencode_returns_json_run_command(self):
         cmd, args = build_command("opencode", "test prompt")
         assert cmd == "opencode"
@@ -113,14 +126,15 @@ class TestBuildInvocationArgs:
             ("claude", "sonnet"),
             ("cursor-agent", "gpt-5"),
             ("glm", "glm-4.7"),
+            ("kimi", "kimi-for-coding"),
             ("grok", "grok-code-fast-1"),
             ("gemini", "gemini-3-flash-preview"),
             ("opencode", "test-provider/test-model"),
         ],
     )
     def test_model_is_forwarded_to_every_backend(self, cli, model):
-        env = {"CLI_API_KEY": "test-key"} if cli == "glm" else {}
-        with patch.dict(os.environ, env, clear=cli == "glm"):
+        env = _credential_env(cli)
+        with patch.dict(os.environ, env, clear=bool(env)):
             _, args, _ = build_invocation_args(_inv(cli, model=model))
         model_idx = args.index("--model")
         assert args[model_idx + 1] == model
@@ -128,8 +142,8 @@ class TestBuildInvocationArgs:
 
     @pytest.mark.parametrize("cli", SUPPORTED_CLIS)
     def test_model_is_omitted_when_unspecified(self, cli):
-        env = {"CLI_API_KEY": "test-key"} if cli == "glm" else {}
-        with patch.dict(os.environ, env, clear=cli == "glm"):
+        env = _credential_env(cli)
+        with patch.dict(os.environ, env, clear=bool(env)):
             _, args, _ = build_invocation_args(_inv(cli))
         assert "--model" not in args
 
@@ -139,20 +153,21 @@ class TestBuildInvocationArgs:
             ("codex", "xhigh", ("-c", 'model_reasoning_effort="xhigh"')),
             ("claude", "high", ("--effort", "high")),
             ("glm", "max", ("--effort", "max")),
+            ("kimi", "high", ("--effort", "high")),
             ("grok", "high", ("--reasoning-effort", "high")),
             ("opencode", "vendor-level", ("--variant", "vendor-level")),
         ],
     )
     def test_effort_is_forwarded_without_value_validation(self, cli, effort, expected_pair):
-        env = {"CLI_API_KEY": "test-key"} if cli == "glm" else {}
-        with patch.dict(os.environ, env, clear=cli == "glm"):
+        env = _credential_env(cli)
+        with patch.dict(os.environ, env, clear=bool(env)):
             _, args, _ = build_invocation_args(_inv(cli, effort=effort))
         assert expected_pair in zip(args, args[1:])
 
     @pytest.mark.parametrize("cli", SUPPORTED_CLIS)
     def test_effort_is_omitted_when_unspecified(self, cli):
-        env = {"CLI_API_KEY": "test-key"} if cli == "glm" else {}
-        with patch.dict(os.environ, env, clear=cli == "glm"):
+        env = _credential_env(cli)
+        with patch.dict(os.environ, env, clear=bool(env)):
             _, args, _ = build_invocation_args(_inv(cli))
         assert "--effort" not in args
         assert "--reasoning-effort" not in args
@@ -237,7 +252,9 @@ class TestBuildInvocationArgs:
         assert env is None
 
     def test_cursor_concatenates_prompt(self):
-        env_no_key = {k: v for k, v in os.environ.items() if k != "CLI_API_KEY"}
+        env_no_key = {
+            k: v for k, v in os.environ.items() if k not in {"CURSOR_API_KEY", "CLI_API_KEY"}
+        }
         with patch.dict("os.environ", env_no_key, clear=True):
             cmd, args, env = build_invocation_args(_inv("cursor-agent"))
         assert cmd == "cursor-agent"
@@ -248,13 +265,24 @@ class TestBuildInvocationArgs:
         assert env is None
 
     def test_cursor_passes_api_key_via_env_not_argv(self):
-        with patch.dict("os.environ", {"CLI_API_KEY": "sk-secret"}):
+        with patch.dict("os.environ", {"CLI_API_KEY": "sk-secret"}, clear=True):
             cmd, args, env = build_invocation_args(_inv("cursor-agent"))
         assert cmd == "cursor-agent"
         assert "sk-secret" not in args
         assert "--api-key" not in args
         assert "-a" not in args
         assert env == {"CURSOR_API_KEY": "sk-secret"}
+
+    def test_cursor_prefers_provider_specific_api_key(self):
+        with patch.dict(
+            "os.environ",
+            {"CURSOR_API_KEY": "cursor-secret", "CLI_API_KEY": "legacy-secret"},
+            clear=True,
+        ):
+            _, args, env = build_invocation_args(_inv("cursor-agent"))
+        assert env == {"CURSOR_API_KEY": "cursor-secret"}
+        assert "cursor-secret" not in args
+        assert "legacy-secret" not in args
 
     def test_glm_uses_replace_system_prompt_and_injects_zai_env(self):
         with patch.dict("os.environ", {"CLI_API_KEY": "zai-secret"}):
@@ -289,14 +317,91 @@ class TestBuildInvocationArgs:
         assert env["ANTHROPIC_API_KEY"] is None
         assert env["ANTHROPIC_AUTH_TOKEN"] == "zai-secret"
 
-    @pytest.mark.parametrize("env", [{}, {"CLI_API_KEY": "   "}])
+    def test_glm_prefers_provider_specific_api_key(self):
+        with patch.dict(
+            "os.environ",
+            {"GLM_API_KEY": "zai-primary", "CLI_API_KEY": "legacy-secret"},
+            clear=True,
+        ):
+            _, args, env = build_invocation_args(_inv("glm"))
+        assert env["ANTHROPIC_AUTH_TOKEN"] == "zai-primary"
+        assert "zai-primary" not in args
+        assert "legacy-secret" not in args
+
+    @pytest.mark.parametrize(
+        "env",
+        [
+            {},
+            {"GLM_API_KEY": "   ", "CLI_API_KEY": "   "},
+        ],
+    )
     def test_glm_missing_key_raises_actionable_config_error(self, env):
         with patch.dict("os.environ", env, clear=True):
             with pytest.raises(ValueError) as exc_info:
                 build_invocation_args(_inv("glm"))
         assert str(exc_info.value) == (
-            "GLM configuration error: CLI_API_KEY is unset or blank. "
+            "GLM configuration error: GLM_API_KEY and CLI_API_KEY are unset or blank. "
             "A Z.ai API token is required before retrying."
+        )
+
+    def test_kimi_uses_replace_system_prompt_and_injects_provider_env(self):
+        with patch.dict("os.environ", {"KIMI_API_KEY": "kimi-secret"}, clear=True):
+            cmd, args, env = build_invocation_args(_inv("kimi"))
+        assert cmd == "claude"
+        assert "--system-prompt" in args
+        assert "--append-system-prompt" not in args
+        sp_idx = args.index("--system-prompt")
+        assert "cwd: /test/cwd" in args[sp_idx + 1]
+        assert "Agent definition" in args[sp_idx + 1]
+        p_idx = args.index("-p")
+        assert args[p_idx + 1] == "User task"
+        assert env == {
+            "ANTHROPIC_BASE_URL": "https://api.kimi.com/coding/",
+            "ANTHROPIC_API_KEY": "kimi-secret",
+            "ANTHROPIC_AUTH_TOKEN": None,
+        }
+        assert "kimi-secret" not in args
+
+    def test_kimi_prefers_provider_specific_api_key_and_strips_auth_token(self):
+        with patch.dict(
+            "os.environ",
+            {
+                "KIMI_API_KEY": "kimi-primary",
+                "CLI_API_KEY": "legacy-secret",
+                "ANTHROPIC_AUTH_TOKEN": "anthropic-secret",
+            },
+            clear=True,
+        ):
+            _, args, env = build_invocation_args(_inv("kimi"))
+        assert env["ANTHROPIC_API_KEY"] == "kimi-primary"
+        assert env["ANTHROPIC_AUTH_TOKEN"] is None
+        assert "kimi-primary" not in args
+        assert "legacy-secret" not in args
+
+    def test_kimi_falls_back_to_legacy_cli_api_key(self):
+        with patch.dict(
+            "os.environ",
+            {"KIMI_API_KEY": "   ", "CLI_API_KEY": "legacy-secret"},
+            clear=True,
+        ):
+            _, args, env = build_invocation_args(_inv("kimi"))
+        assert env["ANTHROPIC_API_KEY"] == "legacy-secret"
+        assert "legacy-secret" not in args
+
+    @pytest.mark.parametrize(
+        "env",
+        [
+            {},
+            {"KIMI_API_KEY": "   ", "CLI_API_KEY": "   "},
+        ],
+    )
+    def test_kimi_missing_key_raises_actionable_config_error(self, env):
+        with patch.dict("os.environ", env, clear=True):
+            with pytest.raises(ValueError) as exc_info:
+                build_invocation_args(_inv("kimi"))
+        assert str(exc_info.value) == (
+            "Kimi configuration error: KIMI_API_KEY and CLI_API_KEY are unset or blank. "
+            "A Kimi API key is required before retrying."
         )
 
     @pytest.mark.parametrize(
@@ -362,6 +467,11 @@ class TestPermissionFlags:
         assert permission_flags("glm", "read-only") == ["--permission-mode", "plan"]
         assert permission_flags("glm", "safe-edit") == ["--permission-mode", "acceptEdits"]
         assert permission_flags("glm", "yolo") == ["--dangerously-skip-permissions"]
+
+    def test_kimi_flags_match_claude(self):
+        assert permission_flags("kimi", "read-only") == ["--permission-mode", "plan"]
+        assert permission_flags("kimi", "safe-edit") == ["--permission-mode", "acceptEdits"]
+        assert permission_flags("kimi", "yolo") == ["--dangerously-skip-permissions"]
 
     def test_gemini_flags(self):
         # --skip-trust lives in build_command (headless prerequisite), not in

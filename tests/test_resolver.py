@@ -16,6 +16,9 @@ class TestResolveCli:
         # glm is a valid run-agent target even though it is never a caller.
         assert resolve_cli("glm") == "glm"
 
+    def test_kimi_frontmatter_is_valid_target(self):
+        assert resolve_cli("kimi") == "kimi"
+
     def test_grok_frontmatter_is_valid_target(self):
         assert resolve_cli("grok") == "grok"
 
