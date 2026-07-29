@@ -2,12 +2,13 @@
 
 [![Codex CLI](https://img.shields.io/badge/Codex%20CLI-Plugin-10a37f)](https://developers.openai.com/codex/cli)
 [![Claude Code](https://img.shields.io/badge/Claude%20Code-Plugin-purple)](https://claude.ai/code)
+[![Kimi](https://img.shields.io/badge/Kimi-Backend-000000)](https://www.kimi.com/code/en)
 [![Agent Skills](https://img.shields.io/badge/Agent%20Skills-Spec%20Compliant-blue)](https://agentskills.io)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 **Orchestrate any LLM as a sub-agent from any AI coding tool.**
 
-Use Codex, Claude Code, Cursor CLI, GLM (Z.ai), Grok Build, Gemini CLI, and OpenCode as sub-agents within a single workflow — regardless of which tool you're running. Define task-specific agents once in markdown, and execute them on any backend.
+Use Codex, Claude Code, Cursor CLI, GLM, Kimi, Grok Build, Gemini CLI, and OpenCode as sub-agents within a single workflow — regardless of which tool you're running. Define task-specific agents once in markdown, and execute them on any backend.
 
 ```mermaid
 graph LR
@@ -16,7 +17,8 @@ graph LR
     B --> D["Claude Code"]
     B --> E["Cursor CLI"]
     B --> H["Grok Build"]
-    B --> G["GLM (Z.ai)"]
+    B --> G["GLM"]
+    B --> K["Kimi"]
     B --> F["Gemini CLI"]
     B --> I["OpenCode"]
     I --> J["Configured provider/model<br/>(API · gateway · local)"]
@@ -30,9 +32,10 @@ Most major AI coding agents now have built-in sub-agents — but only for their 
 This skill removes that restriction:
 
 - **Cross-LLM orchestration** — Use whichever model fits each task — for example, Codex for a quick edit, Claude Code for a deeper pass, or Grok Build for another implementation pass — all from the same parent session.
-- **No vendor lock-in** — Your agent definitions are plain markdown files that work with Codex, Claude Code, Cursor CLI, GLM (Z.ai), Grok Build, Gemini CLI, VS Code, and [30+ other tools](https://agentskills.io) that support the Agent Skills format, so switching IDEs or LLM providers doesn't mean rewriting your workflow.
+- **No vendor lock-in** — Your agent definitions are plain markdown files that work with Codex, Claude Code, Cursor CLI, GLM, Kimi, Grok Build, Gemini CLI, VS Code, and [30+ other tools](https://agentskills.io) that support the Agent Skills format, so switching IDEs or LLM providers doesn't mean rewriting your workflow.
 - **Bring Your Own Model** — Choose which model handles each task and pay each provider directly at their API rates.
 - **Team portability** — Share agent definitions across your team regardless of IDE or preferred LLM.
+
 ## Supported Backends
 
 Each agent definition specifies which CLI runs it via the `run-agent` frontmatter. You can mix backends freely within a project.
@@ -43,6 +46,7 @@ Each agent definition specifies which CLI runs it via the `run-agent` frontmatte
 | **Claude Code** (Anthropic) | `claude` | `curl -fsSL https://claude.ai/install.sh \| bash` |
 | **Cursor** | `cursor-agent` | `curl https://cursor.com/install -fsS \| bash` |
 | **GLM** (Z.ai) | `claude` (GLM endpoint) | Uses the Claude Code binary (see below) |
+| **Kimi** | `claude` (Kimi endpoint) | Uses the Claude Code binary (see below) |
 | **Grok Build** (SpaceX AI) | `grok` | `curl -fsSL https://x.ai/cli/install.sh \| bash` |
 | **Gemini** (Google) | `gemini` | `npm install -g @google/gemini-cli` |
 | **OpenCode** | `opencode` | `brew install anomalyco/tap/opencode` |
@@ -53,13 +57,33 @@ You only need to install the backends you plan to use.
 
 The `glm` backend runs the **Claude Code binary** against GLM's Anthropic-compatible endpoint, so it reuses Claude Code's streaming output and needs no separate CLI — install `claude` as above. Unlike the `claude` backend, which appends the agent definition to Claude Code's default system prompt, the `glm` backend replaces the system prompt entirely, so the model runs on its own characteristics.
 
-Set your Z.ai token in `CLI_API_KEY` before running a `glm` agent:
+Set your Z.ai token in `GLM_API_KEY` before running a `glm` agent:
 
 ```bash
-export CLI_API_KEY=<your-z.ai-token>
+export GLM_API_KEY=<your-z.ai-token>
 ```
 
-The skill forwards it to the Claude binary as the Z.ai credential (via env, never argv) and points the binary at `https://api.z.ai/api/anthropic`. Requests are billed by Z.ai, not Anthropic. When `CLI_API_KEY` is unset, a `glm` run returns a configuration error asking you to set it.
+The skill forwards it to the Claude binary as the Z.ai credential (via env, never argv) and points the binary at `https://api.z.ai/api/anthropic`. Requests are billed by Z.ai, not Anthropic. Existing `CLI_API_KEY` configurations remain supported as a fallback.
+
+### Kimi
+
+The `kimi` backend runs the **Claude Code binary** against Kimi's coding endpoint, so it needs no separate CLI and reuses the same streaming output, model, effort, and permission controls as Claude Code. Like GLM, it replaces Claude Code's default system prompt with the selected agent definition.
+
+Install `claude` as shown above, create a Kimi API key, and set:
+
+```bash
+export KIMI_API_KEY=<your-kimi-api-key>
+```
+
+The skill sends the key through the child environment, never argv, and points Claude Code at `https://api.kimi.com/coding/`. Existing `CLI_API_KEY` configurations are accepted as a fallback.
+
+Provider-specific keys take priority over `CLI_API_KEY`, so GLM, Kimi, and Cursor credentials can stay configured together while different agents select the backend they need:
+
+```bash
+export GLM_API_KEY=<your-z.ai-token>
+export KIMI_API_KEY=<your-kimi-api-key>
+export CURSOR_API_KEY=<your-cursor-token> # optional when cursor-agent is logged in
+```
 
 ### OpenCode
 
@@ -213,13 +237,14 @@ You can have agents that use different LLMs side by side:
 
 ```
 .agents/
-├── test-writer.md      # run-agent: codex   (fast generation)
-├── code-reviewer.md    # run-agent: claude  (strong reasoning)
-└── implementer.md      # run-agent: grok   (alternate implementation pass)
+├── test-writer.md         # run-agent: codex
+├── code-reviewer.md       # run-agent: claude
+├── kimi-implementer.md    # run-agent: kimi
+└── alternate-reviewer.md  # run-agent: grok
 ```
 
 ```
-"Use the code-reviewer agent to find security issues, then use the test-writer agent to add tests for the fixes"
+"Use the code-reviewer and alternate-reviewer agents in parallel, then send the agreed changes to kimi-implementer"
 ```
 
 **Tip:** Always include *what you want done* in your request—not just which agent to use. Specific prompts get better results.
@@ -261,7 +286,7 @@ One-sentence purpose.
 
 | Field | Values | Description |
 |-------|--------|-------------|
-| `run-agent` | `codex`, `claude`, `cursor-agent`, `glm`, `grok`, `gemini`, `opencode` | Which CLI executes this agent |
+| `run-agent` | `codex`, `claude`, `cursor-agent`, `glm`, `kimi`, `grok`, `gemini`, `opencode` | Which CLI executes this agent |
 | `model` | Backend-specific model name (optional) | Model passed to the selected CLI; omit to use its configured default |
 | `effort` | Backend/model-specific value (optional) | Advanced reasoning-effort override; omit to use the backend/model default |
 | `permission` | `read-only`, `safe-edit` (default), `yolo` | Approval/sandbox level the sub-agent runs with |
@@ -270,7 +295,7 @@ If `run-agent` is not specified, the skill auto-detects the caller environment o
 
 `effort` is an advanced option whose accepted values depend on both the backend
 and model. The runner treats the value as opaque and forwards it unchanged to
-Codex as `model_reasoning_effort`, Claude/GLM as `--effort`, Grok as
+Codex as `model_reasoning_effort`, Claude/GLM/Kimi as `--effort`, Grok as
 `--reasoning-effort`, and OpenCode as `--variant`. Set it when the selected
 model's accepted values are confirmed in the CLI/provider documentation;
 otherwise omit the field and use the backend/model default. Invalid combinations
@@ -365,7 +390,7 @@ To customize: `export SUB_AGENTS_DIR=/custom/path`
 | `--prompt` | Yes* | Task description to delegate |
 | `--cwd` | Yes* | Working directory (absolute path) |
 | `--timeout` | No | Timeout ms (default: 600000) |
-| `--cli` | No | Force CLI: `codex`, `claude`, `cursor-agent`, `glm`, `grok`, `gemini`, `opencode` |
+| `--cli` | No | Force CLI: `codex`, `claude`, `cursor-agent`, `glm`, `kimi`, `grok`, `gemini`, `opencode` |
 
 *Required when not using --list
 
@@ -383,10 +408,13 @@ Only use agent definitions you've written yourself or from sources you trust. Re
 Make sure the CLI is installed and accessible in your `PATH`.
 
 **Cursor CLI:**
-Run `cursor-agent login` to authenticate. Sessions can expire, so just run this command again if you see auth errors.
+Run `cursor-agent login` to authenticate, or set `CURSOR_API_KEY`. `CLI_API_KEY` remains available as a compatibility fallback. Sessions can expire, so run the login command again if you see auth errors.
 
 **GLM:**
-Set `CLI_API_KEY` to your Z.ai token — an unset key returns a configuration error (see [GLM (Z.ai)](#glm-zai)).
+Set `GLM_API_KEY` to your Z.ai token. `CLI_API_KEY` remains available as a compatibility fallback (see [GLM (Z.ai)](#glm-zai)).
+
+**Kimi:**
+Install Claude Code and set `KIMI_API_KEY` to your Kimi API key. `CLI_API_KEY` remains available as a compatibility fallback (see [Kimi](#kimi)).
 
 **Gemini CLI:**
 Set `GEMINI_API_KEY` in the environment — without it the `gemini` backend won't run (Google is retiring the free OAuth tier on June 18, 2026).

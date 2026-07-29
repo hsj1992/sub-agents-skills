@@ -30,8 +30,8 @@ class TestBuildProcEnv:
         assert env["EXISTING"] == "new"
 
     def test_none_value_deletes_inherited_key(self):
-        # glm relies on this to strip an inherited ANTHROPIC_API_KEY so it is
-        # never sent to the Z.ai endpoint.
+        # Redirected Claude backends rely on this to strip credentials for a
+        # different provider before spawning the child process.
         with patch.dict("os.environ", {"ANTHROPIC_API_KEY": "sk-ant-real"}, clear=True):
             env = _build_proc_env({"ANTHROPIC_AUTH_TOKEN": "zai", "ANTHROPIC_API_KEY": None})
         assert "ANTHROPIC_API_KEY" not in env
@@ -159,6 +159,39 @@ class TestExecuteAgent:
                 assert "Agent definition" in prompt_arg
                 assert "[User Prompt]" in prompt_arg
                 assert "User task" in prompt_arg
+
+    def test_kimi_provider_configuration_reaches_child_process(self):
+        mock_process = MagicMock()
+        mock_process.stdout.readline.side_effect = [
+            '{"type": "result", "result": "DONE"}\n',
+            "",
+        ]
+        mock_process.communicate.return_value = ("", "")
+        mock_process.returncode = 0
+
+        parent_env = {
+            "KIMI_API_KEY": "kimi-primary",
+            "CLI_API_KEY": "legacy-secret",
+            "ANTHROPIC_API_KEY": "anthropic-key",
+            "ANTHROPIC_AUTH_TOKEN": "anthropic-token",
+        }
+        with patch.dict("os.environ", parent_env, clear=True):
+            with patch("subprocess.Popen", return_value=mock_process) as mock_popen:
+                result = execute_agent(
+                    AgentInvocation(cli="kimi", prompt="x", cwd="/tmp"),
+                    timeout_ms=5000,
+                )
+
+        command = mock_popen.call_args[0][0]
+        child_env = mock_popen.call_args[1]["env"]
+        assert command[0] == "claude"
+        assert "kimi-primary" not in command
+        assert "legacy-secret" not in command
+        assert child_env["ANTHROPIC_BASE_URL"] == "https://api.kimi.com/coding/"
+        assert child_env["ANTHROPIC_API_KEY"] == "kimi-primary"
+        assert "ANTHROPIC_AUTH_TOKEN" not in child_env
+        assert result["status"] == "success"
+        assert result["result"] == "DONE"
 
     def test_aborts_when_stdout_exceeds_memory_cap(self):
         """A flooding sub-agent must be killed before exhausting broker memory.
