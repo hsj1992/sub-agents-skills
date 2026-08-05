@@ -6,9 +6,9 @@
 [![Agent Skills](https://img.shields.io/badge/Agent%20Skills-Spec%20Compliant-blue)](https://agentskills.io)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-**Orchestrate any LLM as a sub-agent from any AI coding tool.**
+Run task-specific agents on different AI coding backends from one parent tool.
 
-Use Codex, Claude Code, Cursor CLI, GLM, Kimi, Grok Build, Gemini CLI, and OpenCode as sub-agents within a single workflow — regardless of which tool you're running. Define task-specific agents once in markdown, and execute them on any backend.
+Use Codex, Claude Code, Cursor CLI, GLM, Kimi, Grok Build, Gemini CLI, and OpenCode as sub-agents in one workflow. Agent definitions are Markdown files, and each agent can select its execution backend.
 
 ```mermaid
 graph LR
@@ -27,14 +27,14 @@ graph LR
 
 ## Why?
 
-Most major AI coding agents now have built-in sub-agents — but only for their own model. Claude Code delegates to Claude. Codex delegates to GPT. Most keep that delegation inside their own ecosystem, with no portable way to route a task to another provider's model.
+Most AI coding tools provide sub-agents tied to their own models. Claude Code delegates to Claude, and Codex delegates to GPT. Their built-in delegation does not provide a portable way to route a task to another provider's model.
 
-This skill removes that restriction:
+This skill lets each agent select a supported backend:
 
-- **Cross-LLM orchestration** — Use whichever model fits each task — for example, Codex for a quick edit, Claude Code for a deeper pass, or Grok Build for another implementation pass — all from the same parent session.
-- **No vendor lock-in** — Your agent definitions are plain markdown files that work with Codex, Claude Code, Cursor CLI, GLM, Kimi, Grok Build, Gemini CLI, VS Code, and [30+ other tools](https://agentskills.io) that support the Agent Skills format, so switching IDEs or LLM providers doesn't mean rewriting your workflow.
-- **Bring Your Own Model** — Choose which model handles each task and pay each provider directly at their API rates.
-- **Team portability** — Share agent definitions across your team regardless of IDE or preferred LLM.
+- **Backend selection per task:** Choose Codex for a quick edit, Claude Code for a deeper pass, or another supported backend for a separate implementation pass.
+- **Portable definitions:** Plain Markdown agent files work with Codex, Claude Code, Cursor CLI, GLM, Kimi, Grok Build, Gemini CLI, VS Code, and [30+ other tools](https://agentskills.io) that support the Agent Skills format.
+- **Direct provider billing:** Choose which model handles each task and pay the provider at its API rates.
+- **Shared configuration:** Use the same agent definitions across a team with different IDEs or preferred LLMs.
 
 ## Supported Backends
 
@@ -55,7 +55,7 @@ You only need to install the backends you plan to use.
 
 ### GLM (Z.ai)
 
-The `glm` backend runs the **Claude Code binary** against GLM's Anthropic-compatible endpoint, so it reuses Claude Code's streaming output and needs no separate CLI — install `claude` as above. Unlike the `claude` backend, which appends the agent definition to Claude Code's default system prompt, the `glm` backend replaces the system prompt entirely, so the model runs on its own characteristics.
+The `glm` backend runs the **Claude Code binary** against GLM's Anthropic-compatible endpoint, so it reuses Claude Code's streaming output and needs no separate CLI. Install `claude` as shown above. Unlike the `claude` backend, which appends the agent definition to Claude Code's default system prompt, the `glm` backend replaces the system prompt entirely, so the model runs on its own characteristics.
 
 Set your Z.ai token in `GLM_API_KEY` before running a `glm` agent:
 
@@ -247,7 +247,7 @@ You can have agents that use different LLMs side by side:
 "Use the code-reviewer and alternate-reviewer agents in parallel, then send the agreed changes to kimi-implementer"
 ```
 
-**Tip:** Always include *what you want done* in your request—not just which agent to use. Specific prompts get better results.
+**Tip:** Include *what you want done* in the request, not only the agent name. Specific requests produce more useful results.
 
 ## Writing Effective Agents
 
@@ -288,7 +288,7 @@ One-sentence purpose.
 |-------|--------|-------------|
 | `run-agent` | `codex`, `claude`, `cursor-agent`, `glm`, `kimi`, `grok`, `gemini`, `opencode` | Which CLI executes this agent |
 | `model` | Backend-specific model name (optional) | Model passed to the selected CLI; omit to use its configured default |
-| `effort` | Backend/model-specific value (optional) | Advanced reasoning-effort override; omit to use the backend/model default |
+| `effort` | Backend/model-specific value (optional) | Reasoning-effort override; omit to use the backend/model default |
 | `permission` | `read-only`, `safe-edit` (default), `yolo` | Approval/sandbox level the sub-agent runs with |
 
 If `run-agent` is not specified, the skill auto-detects the caller environment or defaults to `codex`.
@@ -305,9 +305,9 @@ set returns an error.
 
 **Permission levels:**
 
-- `read-only` — investigation/review only, no edits or shell writes (codex `-s read-only` / claude `--permission-mode plan` / cursor `--mode plan` / grok `--sandbox read-only` / gemini `--approval-mode plan` / OpenCode permission deny rules)
-- `safe-edit` — auto-approve edits inside the workspace, suppress prompts (default; codex `-s workspace-write` + `approval_policy=never` / claude `--permission-mode acceptEdits` / cursor `--trust` / grok `--sandbox workspace` / gemini `--approval-mode auto_edit` / OpenCode `external_directory: deny`)
-- `yolo` — bypass all approvals and sandboxing. Use with care.
+- `read-only`: investigation/review only, no edits or shell writes (codex `-s read-only` / claude `--permission-mode plan` / cursor `--mode plan` / grok `--sandbox read-only` / gemini `--approval-mode plan` / OpenCode permission deny rules)
+- `safe-edit`: auto-approve edits inside the workspace, suppress prompts (default; codex `-s workspace-write` + `approval_policy=never` / claude `--permission-mode acceptEdits` / cursor `--trust` / grok `--sandbox workspace` / gemini `--approval-mode auto_edit` / OpenCode `external_directory: deny`)
+- `yolo`: bypass all approvals and sandboxing. Use with care.
 
 Sub-agents have no stdin, so any approval prompt would deadlock the run. The default `safe-edit` keeps normal tool writes confined to the workspace while suppressing prompts. OpenCode permission controls are not an OS-level sandbox and cannot confine every side effect of arbitrary programs launched through bash.
 
@@ -319,7 +319,7 @@ Agents run in isolation with fresh context. Avoid:
 - Assumptions about prior context ("continuing from before...")
 - Scope creep beyond the stated purpose
 
-### Advanced Patterns
+### Optional Agent Sections
 
 For complex agents, consider adding:
 
@@ -417,7 +417,7 @@ Set `GLM_API_KEY` to your Z.ai token. `CLI_API_KEY` remains available as a compa
 Install Claude Code and set `KIMI_API_KEY` to your Kimi API key. `CLI_API_KEY` remains available as a compatibility fallback (see [Kimi](#kimi)).
 
 **Gemini CLI:**
-Set `GEMINI_API_KEY` in the environment — without it the `gemini` backend won't run (Google is retiring the free OAuth tier on June 18, 2026).
+Set `GEMINI_API_KEY` in the environment to use the `gemini` backend. Google is retiring the free OAuth tier on June 18, 2026.
 
 **OpenCode:**
 Install OpenCode and configure a provider and default model. Run `opencode models`
@@ -452,13 +452,13 @@ Install the required CLI:
 
 Every sub-agent starts fresh. No shared state, no context from previous runs.
 
-This means each call has some startup overhead, but you get predictable behavior—the same agent definition produces the same results regardless of what ran before. When you split a large task into sub-agents, each one focuses on its specific goal without interference from unrelated context.
+Each call has some startup overhead, but previous runs do not add state to the next one. When you split a large task into sub-agents, each agent receives only the context for its assigned goal.
 
 The main agent stays lightweight too. It coordinates work without accumulating all the sub-agent context in its own window.
 
 ### Agent Skills as an Open Standard
 
-This skill uses the [Agent Skills](https://agentskills.io) format—a convention for packaging reusable AI agent capabilities as portable files. The format is supported by Codex, Claude Code, Cursor CLI, Grok Build, Gemini CLI, and [30+ other tools](https://agentskills.io), so the same skill works across environments without modification.
+This skill uses the [Agent Skills](https://agentskills.io) format for packaging reusable AI agent capabilities as portable files. Codex, Claude Code, Cursor CLI, Grok Build, Gemini CLI, and [30+ other tools](https://agentskills.io) support the format, so the same skill can be used across these environments.
 
 ## How It Works
 
