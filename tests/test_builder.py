@@ -285,7 +285,7 @@ class TestBuildInvocationArgs:
         assert "legacy-secret" not in args
 
     def test_glm_uses_replace_system_prompt_and_injects_zai_env(self):
-        with patch.dict("os.environ", {"CLI_API_KEY": "zai-secret"}):
+        with patch.dict("os.environ", {"CLI_API_KEY": "zai-secret"}, clear=True):
             cmd, args, env = build_invocation_args(_inv("glm"))
         assert cmd == "claude"
         # Full replace, NOT append — GLM runs on the agent def alone.
@@ -311,7 +311,9 @@ class TestBuildInvocationArgs:
         # Even when the parent process has a real ANTHROPIC_API_KEY, the glm
         # override marks it for removal (None) so it never reaches Z.ai.
         with patch.dict(
-            "os.environ", {"CLI_API_KEY": "zai-secret", "ANTHROPIC_API_KEY": "sk-ant-real"}
+            "os.environ",
+            {"CLI_API_KEY": "zai-secret", "ANTHROPIC_API_KEY": "sk-ant-real"},
+            clear=True,
         ):
             _, _, env = build_invocation_args(_inv("glm"))
         assert env["ANTHROPIC_API_KEY"] is None
