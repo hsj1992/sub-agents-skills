@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+
 import pytest
 from _constants import SUPPORTED_CLIS
 from _stream import _LINE_PROCESSORS, StreamProcessor, _extract_trailing_json_object
@@ -163,3 +165,46 @@ class TestStreamProcessor:
     def test_extract_trailing_json_object_rejects_extra_suffix(self):
         text = 'prefix {"findings":[]} trailing'
         assert _extract_trailing_json_object(text) == text
+
+
+class TestExtractTrailingJsonObject:
+    @pytest.mark.parametrize(
+        ("text", "expected"),
+        [
+            ("", ""),
+            ("   ", "   "),
+            ("no json here", "no json here"),
+            ('{"a":1}', '{"a":1}'),
+            ('  {"a":1}\n\n', '{"a":1}'),
+            ('prose {"a":{"b":[1,{"c":2}]}}', '{"a":{"b":[1,{"c":2}]}}'),
+            ('prose {"a":"{ not real }"}', '{"a":"{ not real }"}'),
+            (r'prose {"a":"quote \" brace {"}', r'{"a":"quote \" brace {"}'),
+            (r'prose {"a":"odd \\\" still string {"}', r'{"a":"odd \\\" still string {"}'),
+            (r'prose {"a":"even \\"}', r'{"a":"even \\"}'),
+            ('unbalanced { and " in prose {"a":1}', '{"a":1}'),
+            ('{"a":1} {"b":2}', '{"b":2}'),
+            ('{"a":1} trailing', '{"a":1} trailing'),
+            ("prose [1,2]", "prose [1,2]"),
+            ("prose {broken", "prose {broken"),
+            ('prose {"a":1', 'prose {"a":1'),
+        ],
+    )
+    def test_extraction_cases(self, text, expected):
+        assert _extract_trailing_json_object(text) == expected
+
+    def test_invalid_input_returns_original_text_with_whitespace(self):
+        text = "  no trailing object }  "
+        assert _extract_trailing_json_object(text) == text
+
+    def test_scans_candidates_without_repeated_decoding(self, monkeypatch):
+        calls = []
+        original = json.JSONDecoder.raw_decode
+
+        def counting_raw_decode(self, s, idx=0):
+            calls.append(idx)
+            return original(self, s, idx)
+
+        monkeypatch.setattr(json.JSONDecoder, "raw_decode", counting_raw_decode)
+        text = "{x " * 20000 + "}"
+        assert _extract_trailing_json_object(text) == text
+        assert len(calls) <= 1

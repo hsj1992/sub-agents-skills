@@ -5,21 +5,50 @@ import json
 from _constants import SUPPORTED_CLIS_HELP
 
 
+def _is_string_delimiter(text: str, index: int) -> bool:
+    """A quote is a delimiter unless an odd number of backslashes escape it."""
+    backslashes = 0
+    position = index - 1
+    while position >= 0 and text[position] == "\\":
+        backslashes += 1
+        position -= 1
+    return backslashes % 2 == 0
+
+
+def _trailing_object_start(text: str) -> int:
+    """Index of the '{' opening the object that closes the text, or -1."""
+    depth = 0
+    in_string = False
+    for index in range(len(text) - 1, -1, -1):
+        char = text[index]
+        if char == '"' and _is_string_delimiter(text, index):
+            in_string = not in_string
+        elif in_string:
+            continue
+        elif char == "}":
+            depth += 1
+        elif char == "{":
+            depth -= 1
+            if depth == 0:
+                return index
+    return -1
+
+
 def _extract_trailing_json_object(text: str) -> str:
     stripped = text.strip()
-    if not stripped:
+    if not stripped.endswith("}"):
         return text
 
-    decoder = json.JSONDecoder()
-    for index in range(len(stripped) - 1, -1, -1):
-        if stripped[index] != "{":
-            continue
-        try:
-            value, end = decoder.raw_decode(stripped, index)
-        except json.JSONDecodeError:
-            continue
-        if isinstance(value, dict) and stripped[end:].strip() == "":
-            return stripped[index:end]
+    start = _trailing_object_start(stripped)
+    if start < 0:
+        return text
+
+    try:
+        value, end = json.JSONDecoder().raw_decode(stripped, start)
+    except json.JSONDecodeError:
+        return text
+    if isinstance(value, dict) and end == len(stripped):
+        return stripped[start:end]
     return text
 
 
