@@ -110,6 +110,23 @@ class TestBuildFinalResponse:
         # When parsing failed, raw stdout falls into result for debugging
         assert r["result"] == "raw line\n"
 
+    def test_error_result_text_takes_precedence_over_non_error_subtype(self):
+        r = build_final_response(
+            "claude",
+            1,
+            {
+                "result": "Authentication required",
+                "subtype": "success",
+                "is_error": True,
+                "status": "error",
+            },
+            [],
+            "",
+            terminated_by_us=True,
+        )
+        assert r["status"] == "error"
+        assert r["error"] == "Authentication required"
+
 
 class TestExecuteAgent:
     def test_returns_error_when_cli_executable_not_found(self):
@@ -130,6 +147,45 @@ class TestExecuteAgent:
                 assert result["status"] == "error"
                 assert result["exit_code"] == 127
                 assert "not found" in result["error"].lower()
+
+    def test_claude_non_result_event_does_not_end_process_before_result(self):
+        mock_process = MagicMock()
+        mock_process.stdout.readline.side_effect = [
+            '{"type": "system", "subtype": "notification", '
+            '"text": "Background operation completed"}\n',
+            '{"type": "result", "result": "actual response"}\n',
+            "",
+        ]
+        mock_process.communicate.return_value = ("", "")
+        mock_process.returncode = 0
+
+        with patch("subprocess.Popen", return_value=mock_process):
+            result = execute_agent(
+                AgentInvocation(cli="claude", prompt="x", cwd="/tmp"),
+                timeout_ms=5000,
+            )
+
+        assert result["status"] == "success"
+        assert result["result"] == "actual response"
+
+    def test_claude_error_result_is_not_reported_as_success(self):
+        mock_process = MagicMock()
+        mock_process.stdout.readline.side_effect = [
+            '{"type":"result","subtype":"error_during_execution","is_error":true}\n',
+            "",
+        ]
+        mock_process.communicate.return_value = ("", "")
+        mock_process.returncode = -15
+
+        with patch("subprocess.Popen", return_value=mock_process):
+            result = execute_agent(
+                AgentInvocation(cli="claude", prompt="x", cwd="/tmp"),
+                timeout_ms=5000,
+            )
+
+        assert result["status"] == "error"
+        assert result["result"] == ""
+        assert "error_during_execution" in result["error"]
 
     def test_codex_concatenates_prompt_with_agent_file(self):
         mock_process = MagicMock()

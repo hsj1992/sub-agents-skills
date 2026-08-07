@@ -2,18 +2,50 @@
 
 from __future__ import annotations
 
-from _stream import StreamProcessor, _extract_trailing_json_object
+import pytest
+from _constants import SUPPORTED_CLIS
+from _stream import _LINE_PROCESSORS, StreamProcessor, _extract_trailing_json_object
 
 
 class TestStreamProcessor:
-    def test_claude_result(self):
-        processor = StreamProcessor()
+    def test_supported_clis_have_line_processors(self):
+        assert set(_LINE_PROCESSORS) == set(SUPPORTED_CLIS)
+
+    @pytest.mark.parametrize("cli", ["claude", "glm", "kimi"])
+    def test_claude_family_result(self, cli):
+        processor = StreamProcessor(cli)
         assert processor.process_line('{"type": "result", "result": "hello"}')
         result = processor.get_result()
         assert result["result"] == "hello"
 
+    @pytest.mark.parametrize("cli", ["claude", "glm", "kimi"])
+    def test_claude_family_error_result(self, cli):
+        processor = StreamProcessor(cli)
+        assert processor.process_line(
+            '{"type":"result","subtype":"error_during_execution","is_error":true}'
+        )
+        result = processor.get_result()
+        assert result["status"] == "error"
+
+    @pytest.mark.parametrize("cli", ["claude", "glm", "kimi"])
+    def test_claude_family_success_result_requires_text(self, cli):
+        processor = StreamProcessor(cli)
+        assert not processor.process_line('{"type":"result","subtype":"success","is_error":false}')
+        assert processor.get_result() is None
+
+    def test_claude_non_result_event_with_text_is_not_terminal(self):
+        processor = StreamProcessor("claude")
+        assert not processor.process_line(
+            '{"type": "system", "subtype": "notification", '
+            '"text": "Background operation completed"}'
+        )
+        assert processor.get_result() is None
+
+        assert processor.process_line('{"type": "result", "result": "actual response"}')
+        assert processor.get_result()["result"] == "actual response"
+
     def test_gemini_stream(self):
-        processor = StreamProcessor()
+        processor = StreamProcessor("gemini")
         assert not processor.process_line('{"type": "init"}')
         assert not processor.process_line(
             '{"type": "message", "role": "assistant", "content": "part1"}'
@@ -26,7 +58,7 @@ class TestStreamProcessor:
         assert result["result"] == "part1part2"
 
     def test_codex_stream(self):
-        processor = StreamProcessor()
+        processor = StreamProcessor("codex")
         assert not processor.process_line('{"type": "thread.started"}')
         assert not processor.process_line(
             '{"type": "item.completed", "item": {"type": "agent_message", "text": "msg1"}}'
@@ -39,7 +71,7 @@ class TestStreamProcessor:
         assert result["result"] == "msg1\nmsg2"
 
     def test_opencode_stream_collects_text_until_stop(self):
-        processor = StreamProcessor()
+        processor = StreamProcessor("opencode")
         assert not processor.process_line('{"type":"step_start","part":{}}')
         assert not processor.process_line('{"type":"text","part":{"text":"part1"}}')
         assert not processor.process_line('{"type":"step_finish","part":{"reason":"tool-calls"}}')
@@ -52,7 +84,7 @@ class TestStreamProcessor:
         assert result["stop_reason"] == "stop"
 
     def test_opencode_non_stop_finish_is_partial(self):
-        processor = StreamProcessor()
+        processor = StreamProcessor("opencode")
         assert not processor.process_line('{"type":"text","part":{"text":"truncated"}}')
         assert processor.process_line('{"type":"step_finish","part":{"reason":"length"}}')
         result = processor.get_result()
@@ -60,7 +92,7 @@ class TestStreamProcessor:
         assert result["status"] == "partial"
 
     def test_grok_complete_json_output(self):
-        processor = StreamProcessor()
+        processor = StreamProcessor("grok")
         assert processor.process_complete_output(
             "{\n"
             '  "text": "{\\"findings\\":[]}",\n'
@@ -74,27 +106,45 @@ class TestStreamProcessor:
         assert result["status"] == "success"
 
     def test_grok_compact_json_line_output(self):
-        processor = StreamProcessor()
+        processor = StreamProcessor("grok")
         assert processor.process_line('{"text": "{\\"findings\\":[]}", "stopReason": "EndTurn"}')
         result = processor.get_result()
         assert result["type"] == "result"
         assert result["result"] == '{"findings":[]}'
         assert result["status"] == "success"
 
+    def test_grok_text_without_stop_reason_is_partial(self):
+        processor = StreamProcessor("grok")
+        assert processor.process_line('{"text": "final answer"}')
+        result = processor.get_result()
+        assert result["result"] == "final answer"
+        assert result["status"] == "partial"
+
     def test_grok_compact_json_line_cancelled_is_partial(self):
-        processor = StreamProcessor()
+        processor = StreamProcessor("grok")
         assert processor.process_line('{"text": "progress only", "stopReason": "Cancelled"}')
         result = processor.get_result()
         assert result["result"] == "progress only"
         assert result["status"] == "partial"
 
-    def test_typeless_json_without_text_uses_fallback(self):
-        processor = StreamProcessor()
-        assert processor.process_line('{"message": "raw"}')
-        assert processor.get_result() == {"message": "raw"}
+    def test_cursor_typeless_json_is_not_terminal(self):
+        processor = StreamProcessor("cursor-agent")
+        assert not processor.process_line('{"message": "raw"}')
+        assert processor.get_result() is None
+
+    def test_cursor_typed_result(self):
+        processor = StreamProcessor("cursor-agent")
+        assert processor.process_line(
+            '{"type":"result","subtype":"success","is_error":false,"result":"done"}'
+        )
+        assert processor.get_result()["result"] == "done"
+
+    def test_unknown_cli_fails_fast(self):
+        with pytest.raises(ValueError, match="Unsupported CLI"):
+            StreamProcessor("unknown")
 
     def test_grok_complete_json_cancelled_is_partial(self):
-        processor = StreamProcessor()
+        processor = StreamProcessor("grok")
         assert processor.process_complete_output(
             '{"text": "progress only", "stopReason": "Cancelled"}'
         )
@@ -103,7 +153,7 @@ class TestStreamProcessor:
         assert result["status"] == "partial"
 
     def test_grok_complete_json_extracts_trailing_json_result(self):
-        processor = StreamProcessor()
+        processor = StreamProcessor("grok")
         assert processor.process_complete_output(
             '{"text": "I will review.{\\"findings\\":[]}", "stopReason": "EndTurn"}'
         )
