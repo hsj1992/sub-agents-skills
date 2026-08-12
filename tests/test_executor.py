@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import subprocess
 import sys
 import tempfile
 import threading
@@ -14,8 +15,69 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 from _builder import AgentInvocation
-from _executor import _build_proc_env, build_final_response, execute_agent
+from _executor import (
+    _build_proc_env,
+    _discover_opencode_run_capabilities,
+    _validate_opencode_capabilities,
+    build_final_response,
+    execute_agent,
+)
 from run_subagent import main
+
+
+@pytest.fixture(autouse=True)
+def _freeze_opencode_capabilities():
+    """Keep executor tests offline while production discovers the selected binary."""
+    with patch(
+        "_executor._discover_opencode_run_capabilities",
+        return_value=frozenset({"--auto", "--pure"}),
+    ):
+        yield
+
+
+class TestOpenCodeCapabilities:
+    def test_help_may_be_emitted_on_stderr(self):
+        completed = MagicMock(returncode=0, stdout="", stderr="  --auto x\n  --pure y\n")
+        _discover_opencode_run_capabilities.cache_clear()
+        with patch("subprocess.run", return_value=completed) as run:
+            assert _discover_opencode_run_capabilities("/opt/opencode") == frozenset(
+                {"--auto", "--pure"}
+            )
+        run.assert_called_once_with(
+            ["/opt/opencode", "run", "--help"],
+            stdin=subprocess.DEVNULL,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=5,
+            check=False,
+        )
+
+    def test_help_failure_is_not_treated_as_missing_optional_flags(self):
+        completed = MagicMock(returncode=2, stdout="", stderr="invalid invocation")
+        _discover_opencode_run_capabilities.cache_clear()
+        with patch("subprocess.run", return_value=completed), pytest.raises(
+            ValueError, match="capability discovery failed with exit code 2"
+        ):
+            _discover_opencode_run_capabilities("/opt/failing-opencode")
+
+    def test_missing_auto_fails_before_agent_spawn(self):
+        with patch(
+            "_executor._discover_opencode_run_capabilities", return_value=frozenset()
+        ), patch("subprocess.Popen") as popen:
+            result = execute_agent(
+                AgentInvocation(cli="opencode", prompt="x", cwd="/tmp"), timeout_ms=5000
+            )
+        assert result["status"] == "error"
+        assert "--auto" in result["error"]
+        popen.assert_not_called()
+
+    def test_missing_pure_is_rejected_when_requested(self):
+        with patch(
+            "_executor._discover_opencode_run_capabilities", return_value=frozenset()
+        ), pytest.raises(ValueError, match="--pure"):
+            _validate_opencode_capabilities("opencode", ["run", "--pure", "prompt"])
 
 
 class TestBuildProcEnv:
@@ -489,7 +551,7 @@ class TestExecuteAgent:
         assert result["exit_code"] == 0
         assert not mock_process.terminate.called
 
-    def test_opencode_terminal_event_does_not_rewrite_nonzero_exit(self):
+    def test_opencode_candidate_ready_does_not_rewrite_nonzero_exit(self):
         mock_process = MagicMock()
         mock_process.stdout.readline.side_effect = [
             '{"type":"text","part":{"text":"DONE"}}\n',
@@ -508,6 +570,44 @@ class TestExecuteAgent:
         assert result["status"] == "partial"
         assert result["result"] == "DONE"
         assert result["exit_code"] == -15
+        assert not mock_process.terminate.called
+
+    def test_opencode_candidate_ready_with_held_open_process_times_out(self):
+        mock_process = MagicMock()
+        release_reader = threading.Event()
+        lines = iter(
+            [
+                '{"type":"text","part":{"text":"DONE"}}\n',
+                '{"type":"step_finish","part":{"reason":"stop"}}\n',
+            ]
+        )
+
+        def held_open_readline():
+            try:
+                return next(lines)
+            except StopIteration:
+                release_reader.wait(timeout=5)
+                return ""
+
+        def stop_process():
+            mock_process.returncode = -9
+            release_reader.set()
+
+        mock_process.stdout.readline.side_effect = held_open_readline
+        mock_process.kill.side_effect = stop_process
+        mock_process.communicate.return_value = ("", "")
+        mock_process.returncode = None
+
+        with patch("subprocess.Popen", return_value=mock_process):
+            result = execute_agent(
+                AgentInvocation(cli="opencode", prompt="x", cwd="/tmp"),
+                timeout_ms=200,
+            )
+
+        assert result["status"] == "partial"
+        assert result["result"] == "DONE"
+        assert result["exit_code"] == 124
+        assert mock_process.kill.called
         assert not mock_process.terminate.called
 
 

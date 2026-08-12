@@ -170,7 +170,11 @@ class StreamProcessor:
         return True
 
     def process_line(self, line: str) -> bool:
-        """Process one line. Returns True when a terminal event is reached."""
+        """Process one line. True means a result/candidate event was observed.
+
+        For OpenCode, ``step_finish`` only makes a candidate ready. The
+        executor still requires natural stdout EOF and the real exit code.
+        """
         line = line.strip()
         if not line or self.result_json is not None:
             return False

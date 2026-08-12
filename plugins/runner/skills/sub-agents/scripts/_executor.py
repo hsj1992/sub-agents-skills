@@ -7,6 +7,7 @@ import subprocess
 import tempfile
 import threading
 import time
+from functools import lru_cache
 
 from _builder import AgentInvocation, build_invocation_args
 from _constants import DEFAULT_TIMEOUT_MS
@@ -131,7 +132,7 @@ def _drive_process(process: subprocess.Popen, cli: str, timeout_ms: int) -> dict
     stdout_lines: list = []
     accumulated_chars = 0
     line_q = _spawn_reader(process)
-    saw_terminal = False
+    candidate_ready = False
     terminated_by_us = False
 
     try:
@@ -155,7 +156,7 @@ def _drive_process(process: subprocess.Popen, cli: str, timeout_ms: int) -> dict
                 break
             stdout_lines.append(line)
             accumulated_chars += len(line)
-            if not saw_terminal and accumulated_chars > _MAX_STDOUT_CHARS:
+            if not candidate_ready and accumulated_chars > _MAX_STDOUT_CHARS:
                 process.kill()
                 _drain_to_eof(line_q)
                 process.communicate()
@@ -166,8 +167,8 @@ def _drive_process(process: subprocess.Popen, cli: str, timeout_ms: int) -> dict
                     "Retry with a narrower task.",
                     partial_result=processor.get_result(),
                 )
-            if not saw_terminal and processor.process_line(line):
-                saw_terminal = True
+            if not candidate_ready and processor.process_line(line):
+                candidate_ready = True
                 if cli != "opencode":
                     process.terminate()
                     terminated_by_us = True
@@ -273,10 +274,52 @@ def _isolated_opencode_env(env_override: dict | None, temp_dir: str) -> dict:
     return {**(env_override or {}), "XDG_DATA_HOME": data_home, "XDG_STATE_HOME": state_home}
 
 
+@lru_cache(maxsize=8)
+def _discover_opencode_run_capabilities(command: str) -> frozenset[str]:
+    """Discover optional flags from the selected binary without network access."""
+    completed = subprocess.run(
+        [command, "run", "--help"],
+        stdin=subprocess.DEVNULL,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        timeout=5,
+        check=False,
+    )
+    if completed.returncode != 0:
+        raise ValueError(
+            f"OpenCode capability discovery failed with exit code {completed.returncode}."
+        )
+    # OpenCode 1.18.16/yargs emits help on stderr; other builds may use stdout.
+    help_text = completed.stdout + completed.stderr
+    return frozenset(flag for flag in ("--auto", "--pure") if flag in help_text)
+
+
+def _validate_opencode_capabilities(command: str, args: list) -> None:
+    requested = {flag for flag in ("--auto", "--pure") if flag in args}
+    missing = sorted(requested - _discover_opencode_run_capabilities(command))
+    if missing:
+        raise ValueError(
+            "OpenCode run does not advertise required capability: " + ", ".join(missing)
+        )
+
+
 def execute_agent(inv: AgentInvocation, timeout_ms: int = DEFAULT_TIMEOUT_MS) -> dict:
     command, args, env_override = build_invocation_args(inv)
 
     if inv.cli == "opencode":
+        try:
+            _validate_opencode_capabilities(command, args)
+        except FileNotFoundError:
+            return _error_response(
+                inv.cli,
+                127,
+                f"CLI unavailable: {command!r} was not found on PATH. "
+                "Install it or select another backend.",
+            )
+        except (OSError, subprocess.SubprocessError, ValueError) as error:
+            return _error_response(inv.cli, 1, f"{type(error).__name__}: {error}")
         temp_dir = tempfile.mkdtemp(prefix="subagent-opencode-")
         try:
             proc_env = _build_proc_env(_isolated_opencode_env(env_override, temp_dir))

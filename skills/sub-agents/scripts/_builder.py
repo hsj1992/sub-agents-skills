@@ -187,11 +187,17 @@ _OPENCODE_PERMISSION_MAPPING = {
 
 
 def _build_opencode_args(inv: AgentInvocation) -> tuple[str, list, dict | None]:
-    perm = _invocation_flags(inv)
     formatted_prompt = format_concatenated_prompt(inv.system_context, inv.prompt)
     command, base_args = build_command(inv.cli, formatted_prompt)
+    command_flags = []
+    if inv.model:
+        command_flags.extend(["--model", inv.model])
+    command_flags.extend(effort_flags(inv.cli, inv.effort))
     env_override = {"OPENCODE_PERMISSION": json.dumps(_OPENCODE_PERMISSION_MAPPING[inv.permission])}
-    return command, perm + base_args, env_override
+    # OpenCode documents model/variant as ``run`` command options. 1.18.16
+    # also accepts them before ``run``, but command-local placement is the
+    # stable public shape and avoids depending on yargs global-option parsing.
+    return command, [base_args[0], *command_flags, *base_args[1:]], env_override
 
 
 _GLM_BASE_URL = "https://api.z.ai/api/anthropic"

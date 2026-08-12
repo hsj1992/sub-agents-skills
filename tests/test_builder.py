@@ -433,10 +433,19 @@ class TestBuildInvocationArgs:
         ],
     )
     def test_opencode_uses_configured_model_and_permission_env(self, permission, expected):
-        cmd, args, env = build_invocation_args(_inv("opencode", permission=permission))
+        cmd, args, env = build_invocation_args(
+            _inv("opencode", permission=permission, model="provider/model")
+        )
         assert cmd == "opencode"
-        assert args[:4] == ["run", "--format", "json", "--auto"]
-        assert "--model" not in args
+        assert args == [
+            "run",
+            "--model",
+            "provider/model",
+            "--format",
+            "json",
+            "--auto",
+            args[-1],
+        ]
         assert "[System Context]" in args[-1]
         assert "Agent definition" in args[-1]
         assert json.loads(env["OPENCODE_PERMISSION"]) == expected
