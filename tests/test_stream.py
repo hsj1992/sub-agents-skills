@@ -115,6 +115,16 @@ class TestStreamProcessor:
         assert result["result"] == '{"findings":[]}'
         assert result["status"] == "success"
 
+    def test_grok_compact_json_canonical_end_turn_variant_is_success(self):
+        processor = StreamProcessor("grok")
+        assert processor.process_line(
+            '{"text": "{\\"findings\\":[]}", "stopReason": "end_turn"}'
+        )
+        result = processor.get_result()
+        assert result["result"] == '{"findings":[]}'
+        assert result["status"] == "success"
+        assert result["stop_reason"] == "end_turn"
+
     def test_grok_text_without_stop_reason_is_partial(self):
         processor = StreamProcessor("grok")
         assert processor.process_line('{"text": "final answer"}')

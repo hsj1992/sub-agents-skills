@@ -12,9 +12,6 @@ from _builder import AgentInvocation, build_invocation_args
 from _constants import DEFAULT_TIMEOUT_MS
 from _stream import StreamProcessor
 
-# SIGTERM may be reported as 143 or -15.
-_SUCCESS_EXIT_CODES = (0, 143, -15)
-
 
 def _partial_response(cli: str, result: dict | None, exit_code: int, error: str) -> dict:
     return {
@@ -53,7 +50,7 @@ def build_final_response(
         status = "error"
     elif result and result.get("status") == "partial":
         status = "partial"
-    elif result and (terminated_by_us or exit_code in _SUCCESS_EXIT_CODES):
+    elif result and (terminated_by_us or exit_code == 0):
         status = "success"
     elif result:
         status = "partial"
@@ -135,6 +132,7 @@ def _drive_process(process: subprocess.Popen, cli: str, timeout_ms: int) -> dict
     accumulated_chars = 0
     line_q = _spawn_reader(process)
     saw_terminal = False
+    terminated_by_us = False
 
     try:
         while True:
@@ -169,8 +167,10 @@ def _drive_process(process: subprocess.Popen, cli: str, timeout_ms: int) -> dict
                     partial_result=processor.get_result(),
                 )
             if not saw_terminal and processor.process_line(line):
-                process.terminate()
                 saw_terminal = True
+                if cli != "opencode":
+                    process.terminate()
+                    terminated_by_us = True
 
         # Allow a short graceful-exit window before killing the process.
         wait_remaining = max(0.1, deadline - time.monotonic())
@@ -192,7 +192,7 @@ def _drive_process(process: subprocess.Popen, cli: str, timeout_ms: int) -> dict
             result,
             stdout_lines,
             stderr,
-            terminated_by_us=saw_terminal,
+            terminated_by_us=terminated_by_us,
         )
     except (OSError, ValueError) as e:
         process.kill()

@@ -47,7 +47,9 @@ class TestBuildFinalResponse:
 
     def test_sigterm_with_result_is_success(self):
         # CLI was terminated after the result event — that's still success
-        r = build_final_response("claude", 143, {"result": "ok"}, [], "")
+        r = build_final_response(
+            "claude", 143, {"result": "ok"}, [], "", terminated_by_us=True
+        )
         assert r["status"] == "success"
         assert r["exit_code"] == 143
 
@@ -484,6 +486,29 @@ class TestExecuteAgent:
             )
         assert result["status"] == "success"
         assert result["result"] == "DONE"
+        assert result["exit_code"] == 0
+        assert not mock_process.terminate.called
+
+    def test_opencode_terminal_event_does_not_rewrite_nonzero_exit(self):
+        mock_process = MagicMock()
+        mock_process.stdout.readline.side_effect = [
+            '{"type":"text","part":{"text":"DONE"}}\n',
+            '{"type":"step_finish","part":{"reason":"stop"}}\n',
+            "",
+        ]
+        mock_process.communicate.return_value = ("", "")
+        mock_process.returncode = -15
+
+        with patch("subprocess.Popen", return_value=mock_process):
+            result = execute_agent(
+                AgentInvocation(cli="opencode", prompt="x", cwd="/tmp"),
+                timeout_ms=5000,
+            )
+
+        assert result["status"] == "partial"
+        assert result["result"] == "DONE"
+        assert result["exit_code"] == -15
+        assert not mock_process.terminate.called
 
 
 class TestOpencodeDataDirIsolation:

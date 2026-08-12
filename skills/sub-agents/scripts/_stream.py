@@ -4,6 +4,8 @@ import json
 
 from _constants import SUPPORTED_CLIS_HELP
 
+_GROK_SUCCESS_STOP_REASONS = frozenset({"EndTurn", "end_turn"})
+
 
 def _is_string_delimiter(text: str, index: int) -> bool:
     """A quote is a delimiter unless an odd number of backslashes escape it."""
@@ -58,7 +60,9 @@ def _grok_json_result(data: dict) -> dict | None:
     return {
         "type": "result",
         "result": _extract_trailing_json_object(data["text"]),
-        "status": "success" if data.get("stopReason") == "EndTurn" else "partial",
+        "status": (
+            "success" if data.get("stopReason") in _GROK_SUCCESS_STOP_REASONS else "partial"
+        ),
         "stop_reason": data.get("stopReason"),
         "session_id": data.get("sessionId"),
     }
