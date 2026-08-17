@@ -117,9 +117,7 @@ class TestStreamProcessor:
 
     def test_grok_compact_json_canonical_end_turn_variant_is_success(self):
         processor = StreamProcessor("grok")
-        assert processor.process_line(
-            '{"text": "{\\"findings\\":[]}", "stopReason": "end_turn"}'
-        )
+        assert processor.process_line('{"text": "{\\"findings\\":[]}", "stopReason": "end_turn"}')
         result = processor.get_result()
         assert result["result"] == '{"findings":[]}'
         assert result["status"] == "success"

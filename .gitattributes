@@ -1,0 +1,4 @@
+# Export digests are byte-level contracts; keep skill resources identical on
+# Unix and Windows checkouts.
+skills/trellis-multimodel-goal/** text eol=lf
+plugins/runner/skills/trellis-multimodel-goal/** text eol=lf

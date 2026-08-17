@@ -40,6 +40,9 @@ jobs:
       - name: Check plugin sync
         run: python scripts/sync_plugin.py --check
 
+      - name: Check Trellis multimodel distribution sync
+        run: python scripts/sync_trellis_multimodel.py --source skills/trellis-multimodel-goal --check
+
       - name: Run tests
         run: pytest tests/ -v
 
