@@ -174,9 +174,9 @@ distribution copy is imported and checked with:
 
 ```bash
 python scripts/sync_trellis_multimodel.py \
-  --source /opt/cns/trellis-multimodel-goal/skill
+  --source <canonical-checkout>/skill
 python scripts/sync_trellis_multimodel.py \
-  --source /opt/cns/trellis-multimodel-goal/skill --check
+  --source <canonical-checkout>/skill --check
 ```
 
 The script updates both `skills/trellis-multimodel-goal` and the runner plugin

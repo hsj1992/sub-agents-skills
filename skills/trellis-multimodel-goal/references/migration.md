@@ -1,8 +1,11 @@
 # Migration and Rollback
 
-`baseline/cnsdigital` is a frozen import of the original implementation. Compare
-its artifacts with the new core and compatibility profile before switching a
-consumer. If parity is not established, keep the consumer's existing wrappers
-and remove only the generated export; no application or database rollback is
-needed. Distribution copies are regenerated from this repository and checked by
-digest.
+Before switching a consumer, preserve its existing wrappers and representative
+artifacts as a consumer-owned compatibility baseline. Compare verifier, model,
+forge, and CI adapter outputs against that baseline before enabling the generic
+lifecycle for delivery.
+
+If parity is not established, keep the consumer's existing integration and
+remove only the generated skill export. Application and database rollback are
+outside this tooling migration. Distribution copies are regenerated from the
+canonical skill source and checked by digest.
