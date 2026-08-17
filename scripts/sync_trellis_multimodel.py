@@ -17,6 +17,15 @@ ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_SOURCE = ROOT.parent / "trellis-multimodel-goal" / "skill"
 CANONICAL = ROOT / "skills" / "trellis-multimodel-goal"
 PLUGIN = ROOT / "plugins" / "runner" / "skills" / "trellis-multimodel-goal"
+TEXT_SUFFIXES = {".md", ".sha256"}
+
+
+def stable_bytes(file: Path) -> bytes:
+    """Hash text resources identically when a checkout uses CRLF."""
+    content = file.read_bytes()
+    if file.suffix.lower() in TEXT_SUFFIXES:
+        return content.replace(b"\r\n", b"\n").replace(b"\r", b"\n")
+    return content
 
 
 def digest(path: Path) -> str:
@@ -24,7 +33,7 @@ def digest(path: Path) -> str:
     for file in sorted(path.rglob("*")):
         if file.is_file() and file.name != "EXPORT.sha256":
             value.update(file.relative_to(path).as_posix().encode())
-            value.update(file.read_bytes())
+            value.update(stable_bytes(file))
     return value.hexdigest()
 
 
