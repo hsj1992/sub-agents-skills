@@ -167,6 +167,22 @@ cd sub-agents-skills
 ./install.sh --target <client-skill-path>
 ```
 
+### Trellis Multimodel Goal distribution
+
+`trellis-multimodel-goal` is maintained in its own canonical repository. The
+distribution copy is imported and checked with:
+
+```bash
+python scripts/sync_trellis_multimodel.py \
+  --source /opt/cns/trellis-multimodel-goal/skill
+python scripts/sync_trellis_multimodel.py \
+  --source /opt/cns/trellis-multimodel-goal/skill --check
+```
+
+The script updates both `skills/trellis-multimodel-goal` and the runner plugin
+copy. Do not hand-edit either copy; the standalone repository is the source of
+truth.
+
 ### 2. Create Your First Agent
 
 Create a `.agents/` folder in your project and add `code-reviewer.md`:
