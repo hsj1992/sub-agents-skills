@@ -13,7 +13,6 @@ import hashlib
 import shutil
 from pathlib import Path
 
-
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_SOURCE = ROOT.parent / "trellis-multimodel-goal" / "skill"
 CANONICAL = ROOT / "skills" / "trellis-multimodel-goal"
