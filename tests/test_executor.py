@@ -57,15 +57,17 @@ class TestOpenCodeCapabilities:
     def test_help_failure_is_not_treated_as_missing_optional_flags(self):
         completed = MagicMock(returncode=2, stdout="", stderr="invalid invocation")
         _discover_opencode_run_capabilities.cache_clear()
-        with patch("subprocess.run", return_value=completed), pytest.raises(
-            ValueError, match="capability discovery failed with exit code 2"
+        with (
+            patch("subprocess.run", return_value=completed),
+            pytest.raises(ValueError, match="capability discovery failed with exit code 2"),
         ):
             _discover_opencode_run_capabilities("/opt/failing-opencode")
 
     def test_missing_auto_fails_before_agent_spawn(self):
-        with patch(
-            "_executor._discover_opencode_run_capabilities", return_value=frozenset()
-        ), patch("subprocess.Popen") as popen:
+        with (
+            patch("_executor._discover_opencode_run_capabilities", return_value=frozenset()),
+            patch("subprocess.Popen") as popen,
+        ):
             result = execute_agent(
                 AgentInvocation(cli="opencode", prompt="x", cwd="/tmp"), timeout_ms=5000
             )
@@ -74,9 +76,10 @@ class TestOpenCodeCapabilities:
         popen.assert_not_called()
 
     def test_missing_pure_is_rejected_when_requested(self):
-        with patch(
-            "_executor._discover_opencode_run_capabilities", return_value=frozenset()
-        ), pytest.raises(ValueError, match="--pure"):
+        with (
+            patch("_executor._discover_opencode_run_capabilities", return_value=frozenset()),
+            pytest.raises(ValueError, match="--pure"),
+        ):
             _validate_opencode_capabilities("opencode", ["run", "--pure", "prompt"])
 
 
@@ -109,9 +112,7 @@ class TestBuildFinalResponse:
 
     def test_sigterm_with_result_is_success(self):
         # CLI was terminated after the result event — that's still success
-        r = build_final_response(
-            "claude", 143, {"result": "ok"}, [], "", terminated_by_us=True
-        )
+        r = build_final_response("claude", 143, {"result": "ok"}, [], "", terminated_by_us=True)
         assert r["status"] == "success"
         assert r["exit_code"] == 143
 
