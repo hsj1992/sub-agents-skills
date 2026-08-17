@@ -46,13 +46,15 @@ def replace_copy(source: Path, destination: Path) -> None:
 
 
 def check_copy(source: Path, destination: Path) -> bool:
+    source_marker = source / "EXPORT.sha256"
     marker = destination / "EXPORT.sha256"
-    expected = digest(source)
     return (
-        destination.is_dir()
+        source_marker.is_file()
+        and destination.is_dir()
         and marker.is_file()
-        and marker.read_text(encoding="utf-8").strip() == expected
-        and digest(destination) == expected
+        and marker.read_text(encoding="utf-8").strip()
+        == source_marker.read_text(encoding="utf-8").strip()
+        and digest(destination) == digest(source)
     )
 
 
